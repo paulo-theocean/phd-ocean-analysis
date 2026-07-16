@@ -1,0 +1,26 @@
+name: phd-ocean
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - spyder  
+  - numpy
+  - pandas
+  - scipy
+  - xarray
+  - netcdf4
+  - h5netcdf
+  - dask
+  - matplotlib
+  - cartopy
+  - cmocean
+  - shapely
+  - geopandas
+  - pyproj
+  - gsw
+  - statsmodels
+  - scikit-learn
+  - openpyxl
+  - pip
+  - pip:
+      - -e .
