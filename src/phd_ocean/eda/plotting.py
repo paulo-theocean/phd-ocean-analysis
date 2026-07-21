@@ -724,12 +724,12 @@ def _subplot_adjustment_kwargs(time_span: str) -> dict[str, float]:
 
     if time_span == "monthly":
         return {
-            "top": 0.91,
-            "bottom": 0.07,
-            "left": 0.055,
-            "right": 0.89,
-            "hspace": 0.035,
-            "wspace": 0.035,
+            "top": 0.88,
+            "bottom": 0.11,
+            "left": 0.06,
+            "right": 0.9,
+            "hspace": 0.1,
+            "wspace": 0.1,
         }
 
     if time_span == "yearly":
