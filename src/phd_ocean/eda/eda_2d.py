@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
+import cmocean as cmo
 
 import xarray as xr
 
@@ -87,6 +88,33 @@ def _open_input_data(
         chunks=chunks,
     )
 
+def _default_plot_style_for_statistic(stat_name: str) -> dict:
+    """
+    Choose default colormap behavior for EDA statistic maps.
+
+    Signed statistics such as YKI, skewness, and kurtosis are centered at zero
+    because negative and positive values both have physical/statistical meaning.
+    """
+    signed_statistics = {
+        "yki",
+        "skew",
+        "skewness",
+        "kurt",
+        "kurtosis",
+    }
+
+    normalized = stat_name.lower()
+
+    if normalized in signed_statistics:
+        return {
+            "cmap": cmo.cm.balance,
+            "centered": True,
+        }
+
+    return {
+        "cmap": cmo.cm.thermal,
+        "centered": False,
+    }
 
 def select_variable(
     data: XarrayObject,
@@ -369,6 +397,11 @@ def run_eda_2d_statistics(
 
         for stat_name in stats_maps.data_vars:
             kwargs = dict(plot_kwargs or {})
+            
+            default_style = _default_plot_style_for_statistic(stat_name)
+
+            kwargs.setdefault("cmap", default_style["cmap"])
+            kwargs.setdefault("centered", default_style["centered"])
             kwargs.setdefault("lon", lon_array)
             kwargs.setdefault("lat", lat_array)
             kwargs.setdefault("title", f"{base_name} - {stat_name}")

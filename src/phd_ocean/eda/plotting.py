@@ -93,6 +93,58 @@ def _split_map_feature_kwargs(
 
     return draw_labels, extent_crs, gridline_crs, feature_kwargs
 
+def _style_colorbar(
+    colorbar,
+    *,
+    label: str | None = None,
+    tick_label_rotation: int | float = 0,
+    scientific: bool = False,
+    tick_label_size: int | float = 10,
+    label_size: int | float = 11,
+    label_pad: int | float | None = None,
+) -> None:
+    """
+    Apply common styling to colorbars.
+
+    Parameters
+    ----------
+    colorbar
+        Matplotlib colorbar object.
+    label
+        Colorbar label.
+    tick_label_rotation
+        Rotation angle for colorbar tick labels.
+    scientific
+        Whether to force scientific notation.
+    tick_label_size
+        Font size for colorbar tick labels.
+    label_size
+        Font size for colorbar label.
+    label_pad
+        Padding between colorbar and label.
+    """
+    if label is not None:
+        colorbar.set_label(
+            label,
+            fontsize=label_size,
+            labelpad=label_pad,
+        )
+
+    colorbar.ax.tick_params(
+        labelsize=tick_label_size,
+        labelrotation=tick_label_rotation,
+    )
+
+    if scientific:
+        formatter = mticker.ScalarFormatter(useMathText=True)
+        formatter.set_scientific(True)
+        formatter.set_powerlimits((0, 0))
+
+        colorbar.formatter = formatter
+        colorbar.update_ticks()
+
+        colorbar.ax.yaxis.get_offset_text().set_size(tick_label_size)
+        colorbar.ax.xaxis.get_offset_text().set_size(tick_label_size)
 
 def get_lon_lat(
     data: XarrayObject,
@@ -432,6 +484,11 @@ def plot_2d_map(
     cmap: str | mpl.colors.Colormap | None = None,
     title: str | None = None,
     colorbar_label: str | None = None,
+    colorbar_tick_rotation: int | float = 0,
+    colorbar_scientific: bool = False,
+    colorbar_tick_size: int | float = 10,
+    colorbar_label_size: int | float = 11,
+    colorbar_label_pad: int | float | None = None,
     output_path: PathLike | None = None,
     show: bool = True,
     dpi: int = 300,
@@ -537,8 +594,15 @@ def plot_2d_map(
         shrink=0.75,
     )
 
-    if colorbar_label is not None:
-        colorbar.set_label(colorbar_label)
+    _style_colorbar(
+        colorbar,
+        label=colorbar_label,
+        tick_label_rotation=colorbar_tick_rotation,
+        scientific=colorbar_scientific,
+        tick_label_size=colorbar_tick_size,
+        label_size=colorbar_label_size,
+        label_pad=colorbar_label_pad,
+        )
 
     fig.tight_layout()
 
@@ -780,6 +844,11 @@ def plot_2d_subplots(
     levels: Sequence[float] | int | None = None,
     cmap: str | mpl.colors.Colormap | None = None,
     colorbar_label: str | None = None,
+    colorbar_tick_rotation: int | float = 0,
+    colorbar_scientific: bool = False,
+    colorbar_tick_size: int | float = 10,
+    colorbar_label_size: int | float = 11,
+    colorbar_label_pad: int | float | None = None,
     title: str | None = None,
     output_path: PathLike | None = None,
     show: bool = True,
@@ -899,8 +968,15 @@ def plot_2d_subplots(
             orientation="vertical",
         )
 
-        if colorbar_label is not None:
-            colorbar.set_label(colorbar_label)
+        _style_colorbar(
+            colorbar,
+            label=colorbar_label,
+            tick_label_rotation=colorbar_tick_rotation,
+            scientific=colorbar_scientific,
+            tick_label_size=colorbar_tick_size,
+            label_size=colorbar_label_size,
+            label_pad=colorbar_label_pad,
+            )
 
     _save_or_show(fig, output_path=output_path, show=show, dpi=dpi)
 
@@ -921,6 +997,11 @@ def plot_scalar_with_vectors(
     cmap: str | mpl.colors.Colormap | None = None,
     title: str | None = None,
     colorbar_label: str | None = None,
+    colorbar_tick_rotation: int | float = 0,
+    colorbar_scientific: bool = False,
+    colorbar_tick_size: int | float = 10,
+    colorbar_label_size: int | float = 11,
+    colorbar_label_pad: int | float | None = None,
     output_path: PathLike | None = None,
     show: bool = True,
     dpi: int = 300,
@@ -1021,8 +1102,15 @@ def plot_scalar_with_vectors(
         shrink=0.75,
     )
 
-    if colorbar_label is not None:
-        colorbar.set_label(colorbar_label)
+    _style_colorbar(
+        colorbar,
+        label=colorbar_label,
+        tick_label_rotation=colorbar_tick_rotation,
+        scientific=colorbar_scientific,
+        tick_label_size=colorbar_tick_size,
+        label_size=colorbar_label_size,
+        label_pad=colorbar_label_pad,
+        )
 
     fig.tight_layout()
 
