@@ -68,7 +68,7 @@ def _save_or_show(
 def _split_map_feature_kwargs(
     map_features: dict[str, Any] | None,
     *,
-    default_draw_labels: bool = True,
+    default_draw_labels: bool = False,
     default_extent_crs: ccrs.Projection = ccrs.PlateCarree(),
     default_gridline_crs: ccrs.Projection = ccrs.PlateCarree(),
 ) -> tuple[bool, ccrs.Projection, ccrs.Projection, dict[str, Any]]:
@@ -269,18 +269,10 @@ def add_map_features(
     gridline_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     """
-    Add common Cartopy map features.
+    Add Cartopy map features and lon/lat gridlines.
 
-    Parameters
-    ----------
-    extent
-        Map extent as [lon_min, lon_max, lat_min, lat_max].
-    extent_crs
-        CRS used to interpret the extent. Usually PlateCarree for lon/lat.
-    gridline_crs
-        CRS used to draw gridlines. Usually PlateCarree for lon/lat gridlines.
-    draw_labels
-        Whether to draw longitude/latitude labels.
+    The map projection can be Albers, Lambert, PlateCarree, etc.
+    The extent and gridlines are interpreted in lon/lat coordinates by default.
     """
     if extent is not None:
         ax.set_extent(extent, crs=extent_crs)
@@ -303,11 +295,11 @@ def add_map_features(
         ax.add_feature(cfeature.STATES.with_scale("10m"), zorder=4)
 
     kwargs = {
-        "linewidth": 0.8,
+        "linewidth": 1.0,
         "color": "black",
         "alpha": 0.5,
         "linestyle": "--",
-        "zorder": 5,
+        "zorder": 100,
     }
 
     if gridline_kwargs is not None:
@@ -319,12 +311,6 @@ def add_map_features(
         **kwargs,
     )
 
-    if draw_labels:
-        gl.top_labels = False
-        gl.right_labels = False
-        gl.xformatter = cticker.LongitudeFormatter()
-        gl.yformatter = cticker.LatitudeFormatter()
-
     if gridline_step is not None and extent is not None:
         lon_min, lon_max, lat_min, lat_max = extent
 
@@ -334,6 +320,31 @@ def add_map_features(
         gl.ylocator = mticker.FixedLocator(
             np.arange(lat_min, lat_max + gridline_step, gridline_step)
         )
+
+    if draw_labels:
+        gl.top_labels = False
+        gl.right_labels = False
+
+        # Important for projected maps such as AlbersEqualArea.
+        # Prevents Cartopy from trying to place labels on the curved
+        # geographic boundary, which can trigger Shapely LinearRing errors.
+        gl.geo_labels = False
+        
+        # Space between labels and map boundary, in points.
+        gl.xpadding = 15
+        gl.ypadding = 5
+
+        gl.xformatter = cticker.LongitudeFormatter()
+        gl.yformatter = cticker.LatitudeFormatter()
+
+        gl.xlabel_style = {
+            "size": 9,
+            "rotation": 0,
+        }
+        gl.ylabel_style = {
+            "size": 9,
+            "rotation": 0,
+        }
 
     return gl
 
@@ -451,7 +462,7 @@ def plot_2d_map(
 
     draw_labels, extent_crs, gridline_crs, feature_kwargs = _split_map_feature_kwargs(
         map_features,
-        default_draw_labels=True,
+        default_draw_labels=False,
         default_extent_crs=data_crs,
         default_gridline_crs=ccrs.PlateCarree(),
     )
@@ -668,48 +679,95 @@ def _apply_subplot_gridline_labels(
             gl.left_labels = False
 
 
+def _subplot_default_figsize(
+    time_span: str,
+    *,
+    nrows: int,
+    ncols: int,
+    n_panels: int,
+) -> tuple[float, float]:
+    """
+    Default figure sizes tuned for map subplots.
+
+    These are intentionally smaller/tighter than the first draft.
+    """
+    if time_span == "seasonal":
+        return 8.6, 7.2
+
+    if time_span == "monthly":
+        return 13.5, 8.8
+
+    if time_span == "yearly":
+        # If there are many years, keep each panel compact.
+        return max(10.0, 3.1 * ncols), max(7.0, 2.7 * nrows)
+
+    return max(8.0, 3.3 * ncols), max(6.5, 3.0 * nrows)
+
+
 def _subplot_adjustment_kwargs(time_span: str) -> dict[str, float]:
     """
-    Return subplot spacing similar to the legacy EDA scripts.
+    Return subplot spacing for map panels.
+
+    Coordinates are figure fractions:
+    left/right/bottom/top define the panel area.
+    The colorbar is added separately with fig.add_axes().
     """
     if time_span == "seasonal":
         return {
-            "top": 0.88,
-            "bottom": 0.11,
-            "left": 0.08,
-            "right": 0.90,
-            "hspace": 0.185,
-            "wspace": 0.10,
+            "top": 0.90,
+            "bottom": 0.08,
+            "left": 0.07,
+            "right": 0.88,
+            "hspace": 0.12,
+            "wspace": 0.04,
         }
 
     if time_span == "monthly":
         return {
-            "top": 0.88,
-            "bottom": 0.11,
-            "left": 0.06,
-            "right": 0.90,
-            "hspace": 0.0001,
-            "wspace": 0.10,
+            "top": 0.91,
+            "bottom": 0.07,
+            "left": 0.055,
+            "right": 0.89,
+            "hspace": 0.035,
+            "wspace": 0.035,
         }
 
     if time_span == "yearly":
         return {
-            "top": 0.88,
-            "bottom": 0.11,
-            "left": 0.06,
-            "right": 0.90,
-            "hspace": 0.0001,
-            "wspace": 0.10,
+            "top": 0.91,
+            "bottom": 0.07,
+            "left": 0.055,
+            "right": 0.89,
+            "hspace": 0.035,
+            "wspace": 0.035,
         }
 
     return {
-        "top": 0.88,
-        "bottom": 0.11,
-        "left": 0.07,
-        "right": 0.90,
-        "hspace": 0.15,
-        "wspace": 0.10,
+        "top": 0.90,
+        "bottom": 0.08,
+        "left": 0.065,
+        "right": 0.89,
+        "hspace": 0.08,
+        "wspace": 0.05,
     }
+
+
+def _subplot_colorbar_position(time_span: str) -> tuple[float, float, float, float]:
+    """
+    Default vertical colorbar position.
+
+    Format: [left, bottom, width, height]
+    """
+    if time_span == "seasonal":
+        return 0.91, 0.16, 0.020, 0.62
+
+    if time_span == "monthly":
+        return 0.915, 0.14, 0.018, 0.68
+
+    if time_span == "yearly":
+        return 0.915, 0.14, 0.018, 0.68
+
+    return 0.915, 0.15, 0.018, 0.66
 
 
 def plot_2d_subplots(
@@ -727,12 +785,13 @@ def plot_2d_subplots(
     show: bool = True,
     dpi: int = 300,
     figsize: tuple[float, float] | None = None,
+    layout_kwargs: dict[str, float] | None = None,
     projection: ccrs.Projection = ccrs.PlateCarree(),
     data_crs: ccrs.Projection = ccrs.PlateCarree(),
     centered: bool = False,
     gridline_step: int | float | None = None,
     map_features: dict[str, Any] | None = None,
-    colorbar_position: Sequence[float] = (0.95, 0.10, 0.02, 0.80),
+    colorbar_position: Sequence[float] | None = None,
 ) -> tuple[plt.Figure, np.ndarray]:
     """
     Plot seasonal, monthly, annual, or other grouped 2D fields as subplots.
@@ -745,7 +804,12 @@ def plot_2d_subplots(
     time_span = _infer_time_span_from_group(group, n_panels)
 
     if figsize is None:
-        figsize = (4 * ncols, 3.8 * nrows)
+        figsize = _subplot_default_figsize(
+        time_span,
+        nrows=nrows,
+        ncols=ncols,
+        n_panels=n_panels,
+    )
 
     x, y = _prepare_lon_lat_mesh(
         da.isel({group: 0}),
@@ -755,7 +819,7 @@ def plot_2d_subplots(
 
     draw_labels, extent_crs, gridline_crs, feature_kwargs = _split_map_feature_kwargs(
         map_features,
-        default_draw_labels=True,
+        default_draw_labels=False,
         default_extent_crs=data_crs,
         default_gridline_crs=ccrs.PlateCarree(),
     )
@@ -813,12 +877,20 @@ def plot_2d_subplots(
     for empty_ax in axes_array[n_panels:]:
         empty_ax.remove()
 
-    fig.subplots_adjust(**_subplot_adjustment_kwargs(time_span))
+    subplot_adjustments = _subplot_adjustment_kwargs(time_span)
+
+    if layout_kwargs is not None:
+        subplot_adjustments.update(layout_kwargs)
+
+    fig.subplots_adjust(**subplot_adjustments)
 
     if title is not None:
         fig.suptitle(title)
 
     if cs is not None:
+        if colorbar_position is None:
+            colorbar_position = _subplot_colorbar_position(time_span)
+
         cbar_ax = fig.add_axes(colorbar_position)
 
         colorbar = fig.colorbar(
@@ -875,7 +947,7 @@ def plot_scalar_with_vectors(
 
     draw_labels, extent_crs, gridline_crs, feature_kwargs = _split_map_feature_kwargs(
         map_features,
-        default_draw_labels=True,
+        default_draw_labels=False,
         default_extent_crs=data_crs,
         default_gridline_crs=ccrs.PlateCarree(),
     )
@@ -1051,6 +1123,7 @@ def plot_scalar_vector_subplots(
     show: bool = True,
     dpi: int = 300,
     figsize: tuple[float, float] | None = None,
+    layout_kwargs: dict[str, float] | None = None,
     projection: ccrs.Projection = ccrs.PlateCarree(),
     data_crs: ccrs.Projection = ccrs.PlateCarree(),
     centered: bool = False,
@@ -1064,7 +1137,7 @@ def plot_scalar_vector_subplots(
     quiver_kwargs: dict[str, Any] | None = None,
     gridline_step: int | float | None = None,
     map_features: dict[str, Any] | None = None,
-    colorbar_position: Sequence[float] = (0.95, 0.10, 0.02, 0.80),
+    colorbar_position: Sequence[float] | None = None,
 ) -> tuple[plt.Figure, np.ndarray]:
     """
     Plot grouped scalar fields with grouped vector arrows.
@@ -1077,7 +1150,12 @@ def plot_scalar_vector_subplots(
     time_span = _infer_time_span_from_group(group, n_panels)
 
     if figsize is None:
-        figsize = (4 * ncols, 3.8 * nrows)
+        figsize = _subplot_default_figsize(
+        time_span,
+        nrows=nrows,
+        ncols=ncols,
+        n_panels=n_panels,
+    )
 
     x, y = _prepare_lon_lat_mesh(
         scalar.isel({group: 0}),
@@ -1090,7 +1168,7 @@ def plot_scalar_vector_subplots(
 
     draw_labels, extent_crs, gridline_crs, feature_kwargs = _split_map_feature_kwargs(
         map_features,
-        default_draw_labels=True,
+        default_draw_labels=False,
         default_extent_crs=data_crs,
         default_gridline_crs=ccrs.PlateCarree(),
     )
@@ -1183,12 +1261,20 @@ def plot_scalar_vector_subplots(
     for empty_ax in axes_array[n_panels:]:
         empty_ax.remove()
 
-    fig.subplots_adjust(**_subplot_adjustment_kwargs(time_span))
+    subplot_adjustments = _subplot_adjustment_kwargs(time_span)
+
+    if layout_kwargs is not None:
+        subplot_adjustments.update(layout_kwargs)
+
+    fig.subplots_adjust(**subplot_adjustments)
 
     if title is not None:
         fig.suptitle(title)
 
     if cs is not None:
+        if colorbar_position is None:
+            colorbar_position = _subplot_colorbar_position(time_span)
+
         cbar_ax = fig.add_axes(colorbar_position)
 
         colorbar = fig.colorbar(

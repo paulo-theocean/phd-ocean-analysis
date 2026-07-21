@@ -10,10 +10,10 @@ import cartopy.crs as ccrs
 def cut_region(ds):
     return select_region(
         ds,
-        lat_min=45,
-        lat_max=72,
-        lon_min=-105,
-        lon_max=-60,
+        lat_min=50,
+        lat_max=85,
+        lon_min=-100,
+        lon_max=-50,
         lat_name="lat",
         lon_name="lon",
     )
@@ -32,7 +32,7 @@ TIME_DIM = "time"
 DEPTH_INDEX = None
 
 # Change for your region if needed.
-EXTENT = [-105, -50, 45, 80]
+EXTENT = [-100, -50, 45, 85]
 
 ds = load_many_datasets(DATA_FILES,
                         concat_dim=TIME_DIM,
@@ -60,11 +60,18 @@ plot_kwargs = {
     "data_crs": ccrs.PlateCarree(),
     "extent": EXTENT,
     "levels": 30,
-    "colorbar_label": "Specific Humidity",
+    "cmap": "viridis",
+    "title": None,
+    "colorbar_label": "Specific humidity",
     "gridline_step": 5,
     "map_features": {
-        "draw_labels": False,
-        "gridline_crs": ccrs.PlateCarree()}
+        "land": False,
+        "coastline": True,
+        "borders": False,
+        "states": False,
+        "draw_labels": True,
+        "gridline_crs": ccrs.PlateCarree(),
+    },
 }
 
 def main():
@@ -75,8 +82,8 @@ def main():
         variable=TEMP_VAR,
         time_dim=TIME_DIM,
         depth_index=DEPTH_INDEX,
-        output_table="/home/paulo/Documents/codes/mine/PhD_codes/python/phd-ocean-analysis/outputs/tables/jra3q_temperature_1d_summary.csv",
-        output_violin="/home/paulo/Documents/codes/mine/PhD_codes/python/phd-ocean-analysis/outputs/figures/jra3q_temperature_violin.png",
+        output_table="/home/paulo/Documents/codes/mine/PhD_codes/python/phd-ocean-analysis/outputs/tables/jra3q_SH_1d_summary.csv",
+        output_violin="/home/paulo/Documents/codes/mine/PhD_codes/python/phd-ocean-analysis/outputs/figures/jra3q_SH_violin.png",
         ylabel="2m specific humidity",
         title="JRA3Q SH yearly distribution",
         show=False,
