@@ -32,7 +32,7 @@ TIME_DIM = "time"
 DEPTH_INDEX = None
 
 # Change for your region if needed.
-EXTENT = [-100, -50, 45, 85]
+EXTENT = [-100, -50, 50, 85]
 
 ds = load_many_datasets(DATA_FILES,
                         concat_dim=TIME_DIM,
