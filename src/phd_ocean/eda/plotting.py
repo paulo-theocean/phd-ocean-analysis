@@ -411,9 +411,20 @@ def plot_violin_by_year(
     show: bool = True,
     dpi: int = 300,
     figsize: tuple[float, float] = (14, 7),
+    show_median: bool = True,
+    show_iqr: bool = True,
+    show_extremes: bool = True,
+    connect_medians: bool = True,
+    connect_extremes: bool = True,
 ) -> tuple[plt.Figure, plt.Axes]:
     """
     Plot yearly violin distributions.
+
+    Shows yearly distributions as violins and can overlay:
+    - median points;
+    - interquartile ranges;
+    - low/high extremes;
+    - connected median and extreme lines.
     """
     data = [np.asarray(values, dtype=float) for values in yearly_data]
     data = [values[np.isfinite(values)] for values in data]
@@ -427,33 +438,95 @@ def plot_violin_by_year(
             f"Got {len(years)} years and {len(data)} data groups."
         )
 
+    if any(values.size == 0 for values in data):
+        raise ValueError(
+            "At least one yearly data group is empty after removing NaNs. "
+            "Check the input data or filtering."
+        )
+
+    positions = np.arange(1, len(data) + 1)
+
+    medians = np.array([np.nanmedian(values) for values in data])
+    q1 = np.array([np.nanpercentile(values, 25) for values in data])
+    q3 = np.array([np.nanpercentile(values, 75) for values in data])
+    lows = np.array([np.nanmin(values) for values in data])
+    highs = np.array([np.nanmax(values) for values in data])
+
     fig, ax = plt.subplots(figsize=figsize)
 
     parts = ax.violinplot(
         data,
+        positions=positions,
         showmeans=False,
         showmedians=False,
-        showextrema=True,
+        showextrema=False,
         bw_method="scott",
     )
 
     for body in parts["bodies"]:
-        body.set_alpha(0.8)
+        body.set_alpha(0.75)
 
-    quartile1 = np.array(
-        [np.percentile(values, 25) if values.size else np.nan for values in data]
-    )
-    medians = np.array(
-        [np.percentile(values, 50) if values.size else np.nan for values in data]
-    )
-    quartile3 = np.array(
-        [np.percentile(values, 75) if values.size else np.nan for values in data]
-    )
+    if show_extremes:
+        ax.vlines(
+            positions,
+            lows,
+            highs,
+            linestyle="-",
+            linewidth=0.8,
+            alpha=0.7,
+            label="Min–max range",
+        )
 
-    positions = np.arange(1, len(medians) + 1)
+    if show_iqr:
+        ax.vlines(
+            positions,
+            q1,
+            q3,
+            linestyle="-",
+            linewidth=2.2,
+            alpha=0.9,
+            label="Interquartile range",
+        )
 
-    ax.scatter(positions, medians, marker="o", s=25, zorder=3)
-    ax.vlines(positions, quartile1, quartile3, linestyle="-", linewidth=2)
+    if connect_extremes:
+        ax.plot(
+            positions,
+            lows,
+            marker="v",
+            markersize=4,
+            linewidth=1.0,
+            alpha=0.8,
+            label="Low extreme",
+        )
+        ax.plot(
+            positions,
+            highs,
+            marker="^",
+            markersize=4,
+            linewidth=1.0,
+            alpha=0.8,
+            label="High extreme",
+        )
+
+    if show_median:
+        ax.scatter(
+            positions,
+            medians,
+            marker="o",
+            s=30,
+            zorder=5,
+            label="Median",
+        )
+
+    if connect_medians:
+        ax.plot(
+            positions,
+            medians,
+            marker="o",
+            markersize=4,
+            linewidth=1.5,
+            zorder=6,
+        )
 
     ax.set_xticks(positions)
     ax.set_xticklabels([str(year) for year in years], rotation=45)
@@ -466,6 +539,8 @@ def plot_violin_by_year(
 
     ax.set_xlabel("Year")
     ax.set_xlim(0.25, len(data) + 0.75)
+
+    ax.legend(loc="best", fontsize=9, frameon=False)
 
     fig.tight_layout()
 

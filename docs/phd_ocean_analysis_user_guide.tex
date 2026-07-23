@@ -1,0 +1,816 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{caption}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\definecolor{codegray}{gray}{0.95}
+\definecolor{codeblue}{rgb}{0.1,0.1,0.55}
+\definecolor{codegreen}{rgb}{0.0,0.35,0.0}
+
+\lstdefinestyle{pythonstyle}{
+    language=Python,
+    backgroundcolor=\color{codegray},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{codeblue}\bfseries,
+    commentstyle=\color{codegreen},
+    stringstyle=\color{red!55!black},
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{black!25},
+    tabsize=4
+}
+
+\lstdefinestyle{bashstyle}{
+    language=bash,
+    backgroundcolor=\color{codegray},
+    basicstyle=\ttfamily\small,
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{black!25},
+    tabsize=4
+}
+
+\title{\textbf{PhD Ocean Analysis Package}\\
+\large First Draft User Guide and Function Reference}
+\author{Paulo Victor Silva}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document describes the first draft of the \texttt{phd-ocean-analysis} Python package.
+The current package focuses on exploratory data analysis (EDA) for oceanographic and
+atmospheric gridded datasets. The main capabilities include loading multiple NetCDF files,
+longitude transformation, regional selection, one-dimensional yearly statistics, two-dimensional
+spatial statistics, seasonal and monthly maps, Albers/Cartopy plotting, and first draft vector
+diagnostics.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Repository Structure}
+
+The recommended repository structure is:
+
+\begin{lstlisting}[style=bashstyle]
+phd-ocean-analysis/
+├── pyproject.toml
+├── environment.yml
+├── README.md
+├── scripts/
+│   └── examples/
+│       └── eda/
+│           ├── inspect_datasets.py
+│           └── run_jra3q_temperature_eda.py
+├── src/
+│   └── phd_ocean/
+│       ├── __init__.py
+│       └── eda/
+│           ├── __init__.py
+│           ├── io.py
+│           ├── stats.py
+│           ├── vector.py
+│           ├── plotting.py
+│           ├── eda_1d.py
+│           └── eda_2d.py
+└── outputs/
+    ├── figures/
+    ├── tables/
+    └── netcdf/
+\end{lstlisting}
+
+The package currently follows a \texttt{src/} layout. The installable package is located at:
+
+\begin{lstlisting}[style=bashstyle]
+src/phd_ocean/
+\end{lstlisting}
+
+The EDA tools are located at:
+
+\begin{lstlisting}[style=bashstyle]
+src/phd_ocean/eda/
+\end{lstlisting}
+
+\section{Installation}
+
+Create or update the Conda environment:
+
+\begin{lstlisting}[style=bashstyle]
+cd /home/paulo/Documents/codes/mine/PhD_codes/python/phd-ocean-analysis
+conda env update -f environment.yml --prune
+conda activate phd-ocean
+python -m pip install -e .
+\end{lstlisting}
+
+The editable install is important because it allows changes inside \texttt{src/phd\_ocean/}
+to be used without reinstalling the package after every edit. When using Spyder, restart the
+kernel after changing package source files.
+
+\section{Main EDA Workflow}
+
+The package is designed around a simple workflow:
+
+\begin{enumerate}[label=\arabic*.]
+    \item Load one or many NetCDF files.
+    \item Standardize longitudes if needed.
+    \item Select a geographic region.
+    \item Run one-dimensional EDA for yearly distributions and summary tables.
+    \item Run two-dimensional EDA for spatial statistics and period maps.
+    \item Save figures, tables, and NetCDF outputs.
+\end{enumerate}
+
+A typical script imports:
+
+\begin{lstlisting}[style=pythonstyle]
+from phd_ocean.eda import (
+    load_many_datasets,
+    transform_longitude,
+    select_region,
+    run_eda_1d,
+    run_eda_2d,
+)
+\end{lstlisting}
+
+\section{Input/Output Utilities: \texttt{io.py}}
+
+The \texttt{io.py} module contains file-loading, coordinate, and spatial-selection utilities.
+
+\subsection{Important Functions}
+
+\begin{longtable}{p{0.28\textwidth}p{0.62\textwidth}}
+\toprule
+\textbf{Function} & \textbf{Purpose} \\
+\midrule
+\endhead
+
+\texttt{expand\_paths()} &
+Expands file paths, lists of paths, and glob patterns into a sorted list of files. \\
+
+\texttt{load\_dataset()} &
+Loads one NetCDF file or one group of files into an \texttt{xarray.Dataset}. \\
+
+\texttt{load\_many\_datasets()} &
+Loads many NetCDF files, optionally applying preprocessing transformations before concatenating. \\
+
+\texttt{infer\_time\_dim()} &
+Attempts to identify the time dimension from common names such as \texttt{time}, \texttt{TIME}, or related variants. \\
+
+\texttt{standardize\_time\_dim()} &
+Renames the detected time coordinate to a standard name. \\
+
+\texttt{resample\_time()} &
+Resamples a dataset or data array in time, for example monthly or yearly averages. \\
+
+\texttt{transform\_longitude()} &
+Transforms longitudes from 0--360 degrees to -180--180 degrees and sorts by longitude. \\
+
+\texttt{select\_region()} &
+Selects a geographic box using minimum and maximum longitude and latitude. \\
+
+\texttt{select\_vertical\_section\_ij()} &
+Selects a vertical section from model grids using \texttt{i}/\texttt{j} indices. Useful for NEMO-like grids. \\
+
+\texttt{make\_section\_indices()} &
+Creates a list of section indices between two grid points. \\
+
+\bottomrule
+\end{longtable}
+
+\subsection{Example: Load Many Files and Select a Region}
+
+\begin{lstlisting}[style=pythonstyle]
+from glob import glob
+
+from phd_ocean.eda import (
+    load_many_datasets,
+    transform_longitude,
+    select_region,
+)
+
+DATA_PATHS = "/home/paulo/Documents/data/atmospheric/JRA3Q/"
+DATA_FILES = sorted(glob(DATA_PATHS + "q2_JRA3Q_y*.nc"))
+
+def fix_longitude(ds):
+    return transform_longitude(ds, lon_name="lon")
+
+def cut_region(ds):
+    return select_region(
+        ds,
+        lat_min=45,
+        lat_max=72,
+        lon_min=-105,
+        lon_max=-60,
+        lat_name="lat",
+        lon_name="lon",
+    )
+
+ds = load_many_datasets(
+    DATA_FILES,
+    concat_dim="time",
+    transform=fix_longitude,
+    transform_second=cut_region,
+)
+\end{lstlisting}
+
+\section{Statistics Utilities: \texttt{stats.py}}
+
+The \texttt{stats.py} module contains scalar, circular, vector, and grouped statistics.
+
+\subsection{Scalar Statistics}
+
+The current scalar statistics include:
+
+\begin{itemize}
+    \item mean
+    \item standard deviation
+    \item median or q50
+    \item interquartile range
+    \item Yule-Kendall index
+    \item skewness
+    \item kurtosis
+    \item minimum and maximum
+    \item selected percentiles
+\end{itemize}
+
+\subsection{Important Functions}
+
+\begin{longtable}{p{0.32\textwidth}p{0.58\textwidth}}
+\toprule
+\textbf{Function} & \textbf{Purpose} \\
+\midrule
+\endhead
+
+\texttt{compute\_1d\_statistics()} &
+Computes summary statistics from a one-dimensional array or flattened data. \\
+
+\texttt{compute\_1d\_statistics\_by\_year()} &
+Groups a time series by year and computes yearly statistics. \\
+
+\texttt{compute\_2d\_statistics()} &
+Computes spatial maps of statistics along a chosen time dimension. \\
+
+\texttt{aggregate\_periods()} &
+Aggregates data into seasonal, monthly, or annual means or other reductions. \\
+
+\texttt{circular\_mean\_direction()} &
+Computes circular mean direction for directional data. \\
+
+\texttt{circular\_std\_direction()} &
+Computes circular standard deviation for directional data. \\
+
+\texttt{compute\_1d\_vector\_statistics()} &
+Computes statistics for paired \texttt{u}/\texttt{v} vector data. \\
+
+\texttt{compute\_1d\_vector\_statistics\_by\_year()} &
+Computes yearly vector statistics, including speed and direction diagnostics. \\
+
+\bottomrule
+\end{longtable}
+
+\subsection{Example: 2D Statistics}
+
+\begin{lstlisting}[style=pythonstyle]
+from phd_ocean.eda import compute_2d_statistics
+
+stats_maps = compute_2d_statistics(
+    ds["q2m"],
+    time_dim="time",
+    statistics=["mean", "std", "q50", "iqr", "yki", "kurtosis"],
+)
+\end{lstlisting}
+
+\section{Vector Utilities: \texttt{vector.py}}
+
+The \texttt{vector.py} module handles paired vector components.
+
+\subsection{Important Functions}
+
+\begin{longtable}{p{0.32\textwidth}p{0.58\textwidth}}
+\toprule
+\textbf{Function} & \textbf{Purpose} \\
+\midrule
+\endhead
+
+\texttt{compute\_speed()} &
+Computes vector speed from \texttt{u} and \texttt{v}. \\
+
+\texttt{compute\_direction()} &
+Computes vector direction using a selected convention. \\
+
+\texttt{compute\_vector\_diagnostics()} &
+Returns a dataset containing \texttt{u}, \texttt{v}, speed, and direction. \\
+
+\texttt{compute\_vector\_diagnostics\_from\_dataset()} &
+Computes vector diagnostics directly from a dataset and variable names. \\
+
+\texttt{decompose\_speed\_direction()} &
+Converts speed and direction back into vector components. \\
+
+\bottomrule
+\end{longtable}
+
+\subsection{Direction Conventions}
+
+The package supports different direction conventions:
+
+\begin{itemize}
+    \item \texttt{math}: 0 degrees points east and 90 degrees points north.
+    \item \texttt{bearing}: 0 degrees points north and 90 degrees points east.
+    \item \texttt{coming\_from}: meteorological/oceanographic convention for direction from which flow comes.
+\end{itemize}
+
+\subsection{Example: Speed and Direction}
+
+\begin{lstlisting}[style=pythonstyle]
+from phd_ocean.eda import compute_speed, compute_direction
+
+u = ds["u"]
+v = ds["v"]
+
+speed = compute_speed(u, v)
+
+direction = compute_direction(
+    u,
+    v,
+    convention="bearing",
+    units="degrees",
+)
+\end{lstlisting}
+
+\section{Plotting Utilities: \texttt{plotting.py}}
+
+The \texttt{plotting.py} module contains map, subplot, violin, and vector plotting functions.
+
+\subsection{Important Functions}
+
+\begin{longtable}{p{0.32\textwidth}p{0.58\textwidth}}
+\toprule
+\textbf{Function} & \textbf{Purpose} \\
+\midrule
+\endhead
+
+\texttt{plot\_violin\_by\_year()} &
+Creates yearly violin plots from grouped data. \\
+
+\texttt{plot\_2d\_map()} &
+Plots a single two-dimensional scalar field on a Cartopy map. \\
+
+\texttt{plot\_2d\_subplots()} &
+Plots grouped fields, such as seasonal or monthly maps, as subplots. \\
+
+\texttt{plot\_quiver()} &
+Adds vector arrows to an existing Cartopy axis. \\
+
+\texttt{plot\_scalar\_with\_vectors()} &
+Plots a scalar background field with vector arrows on top. \\
+
+\texttt{plot\_vector\_map()} &
+Plots vector speed as the background field and vector arrows on top. \\
+
+\texttt{plot\_scalar\_vector\_subplots()} &
+Plots grouped scalar fields with grouped vector arrows. \\
+
+\bottomrule
+\end{longtable}
+
+\subsection{Cartopy Projection Logic}
+
+The plotting functions separate the visual map projection from the coordinate system of the data:
+
+\begin{lstlisting}[style=pythonstyle]
+projection = ccrs.AlbersEqualArea(
+    central_longitude=-80,
+    central_latitude=60,
+    standard_parallels=(50, 70),
+)
+
+data_crs = ccrs.PlateCarree()
+\end{lstlisting}
+
+The recommended interpretation is:
+
+\begin{longtable}{p{0.28\textwidth}p{0.62\textwidth}}
+\toprule
+\textbf{Name} & \textbf{Meaning} \\
+\midrule
+\endhead
+
+\texttt{projection} &
+The projection used to draw the map. Example: Albers Equal Area. \\
+
+\texttt{data\_crs} &
+The coordinate reference system of the input longitude and latitude data. Usually \texttt{PlateCarree}. \\
+
+\texttt{gridline\_crs} &
+The coordinate system used to draw lon/lat gridlines. Usually \texttt{PlateCarree}. \\
+
+\texttt{extent} &
+The plotting region in longitude and latitude coordinates. \\
+
+\bottomrule
+\end{longtable}
+
+\subsection{Albers Equal Area Example}
+
+\begin{lstlisting}[style=pythonstyle]
+import cartopy.crs as ccrs
+
+projection = ccrs.AlbersEqualArea(
+    central_longitude=-80,
+    central_latitude=60,
+    standard_parallels=(50, 70),
+)
+
+plot_kwargs = {
+    "projection": projection,
+    "data_crs": ccrs.PlateCarree(),
+    "extent": [-105, -60, 45, 72],
+    "levels": 30,
+    "cmap": "viridis",
+    "title": None,
+    "colorbar_label": "Specific humidity",
+    "gridline_step": 5,
+    "map_features": {
+        "land": False,
+        "coastline": True,
+        "borders": False,
+        "states": False,
+        "draw_labels": True,
+        "gridline_crs": ccrs.PlateCarree(),
+    },
+}
+\end{lstlisting}
+
+For atmospheric variables, set:
+
+\begin{lstlisting}[style=pythonstyle]
+"map_features": {
+    "land": False,
+    "coastline": True,
+}
+\end{lstlisting}
+
+For ocean variables, set:
+
+\begin{lstlisting}[style=pythonstyle]
+"map_features": {
+    "land": True,
+    "coastline": True,
+}
+\end{lstlisting}
+
+\subsection{Current Gridline Note}
+
+For Albers Equal Area maps, the package disables Cartopy geographic boundary labels with:
+
+\begin{lstlisting}[style=pythonstyle]
+gl.geo_labels = False
+\end{lstlisting}
+
+This preserves standard longitude and latitude labels while avoiding failures in the gridliner when the map boundary is projected.
+
+\section{One-Dimensional EDA: \texttt{eda\_1d.py}}
+
+The \texttt{eda\_1d.py} module provides high-level workflows for one-dimensional summaries.
+
+\subsection{Important Functions}
+
+\begin{longtable}{p{0.32\textwidth}p{0.58\textwidth}}
+\toprule
+\textbf{Function} & \textbf{Purpose} \\
+\midrule
+\endhead
+
+\texttt{select\_variable()} &
+Selects a variable from a dataset or validates a data array. \\
+
+\texttt{prepare\_1d\_data()} &
+Prepares a variable for one-dimensional analysis, including optional depth selection. \\
+
+\texttt{xarray\_to\_yearly\_dataframe()} &
+Converts xarray data into a yearly dataframe used by table and violin workflows. \\
+
+\texttt{save\_summary\_table()} &
+Saves yearly summary statistics to CSV or Excel. \\
+
+\texttt{run\_eda\_1d()} &
+High-level one-dimensional EDA workflow for scalar variables. \\
+
+\texttt{prepare\_1d\_vector\_data()} &
+Prepares paired \texttt{u}/\texttt{v} components for vector EDA. \\
+
+\texttt{run\_eda\_1d\_vector()} &
+High-level one-dimensional workflow for vector speed and direction statistics. \\
+
+\bottomrule
+\end{longtable}
+
+\subsection{Example: Scalar 1D EDA}
+
+\begin{lstlisting}[style=pythonstyle]
+from phd_ocean.eda import run_eda_1d
+
+summary = run_eda_1d(
+    ds,
+    variable="q2m",
+    time_dim="time",
+    depth_index=None,
+    output_table="outputs/tables/jra3q_q2m_1d_summary.csv",
+    output_violin="outputs/figures/jra3q_q2m_violin.png",
+    ylabel="2 m specific humidity",
+    title="JRA3Q 2 m specific humidity yearly distribution",
+    show=False,
+)
+\end{lstlisting}
+
+\section{Two-Dimensional EDA: \texttt{eda\_2d.py}}
+
+The \texttt{eda\_2d.py} module provides high-level workflows for spatial statistics and
+period maps.
+
+\subsection{Important Functions}
+
+\begin{longtable}{p{0.32\textwidth}p{0.58\textwidth}}
+\toprule
+\textbf{Function} & \textbf{Purpose} \\
+\midrule
+\endhead
+
+\texttt{prepare\_2d\_field()} &
+Selects a variable, applies optional depth selection, and prepares a 2D or time-varying 2D field. \\
+
+\texttt{run\_eda\_2d\_statistics()} &
+Computes full-period spatial statistics and optionally plots each statistic. \\
+
+\texttt{run\_eda\_2d\_periods()} &
+Computes and plots seasonal, monthly, and/or annual aggregated maps. \\
+
+\texttt{run\_eda\_2d()} &
+General high-level wrapper for statistics, period maps, or both. \\
+
+\bottomrule
+\end{longtable}
+
+\subsection{Example: 2D Statistics}
+
+\begin{lstlisting}[style=pythonstyle]
+from phd_ocean.eda import run_eda_2d
+
+run_eda_2d(
+    ds,
+    variable="q2m",
+    time_dim="time",
+    depth_index=None,
+    mode="statistics",
+    statistics=["mean", "std", "q50", "iqr", "yki", "kurtosis"],
+    output_dir="outputs/figures/jra3q_specific_humidity/statistics",
+    output_statistics_nc="outputs/netcdf/jra3q_specific_humidity_statistics.nc",
+    lon_name="lon",
+    lat_name="lat",
+    plot_kwargs=plot_kwargs,
+    show=False,
+)
+\end{lstlisting}
+
+\subsection{Example: Seasonal and Monthly Maps}
+
+\begin{lstlisting}[style=pythonstyle]
+run_eda_2d(
+    ds,
+    variable="q2m",
+    time_dim="time",
+    depth_index=None,
+    mode="periods",
+    periods=["seasonal", "monthly"],
+    reducer="mean",
+    output_dir="outputs/figures/jra3q_specific_humidity/periods",
+    save_periods_netcdf=True,
+    lon_name="lon",
+    lat_name="lat",
+    plot_kwargs=plot_kwargs,
+    show=False,
+)
+\end{lstlisting}
+
+For first tests, avoid annual maps when the dataset spans many decades, because this may create a very large yearly subplot figure.
+
+\section{Complete Atmospheric Example}
+
+\begin{lstlisting}[style=pythonstyle]
+from glob import glob
+from pathlib import Path
+
+import cartopy.crs as ccrs
+
+from phd_ocean.eda import (
+    load_many_datasets,
+    transform_longitude,
+    select_region,
+    run_eda_1d,
+    run_eda_2d,
+)
+
+PROJECT_DIR = Path(
+    "/home/paulo/Documents/codes/mine/PhD_codes/python/phd-ocean-analysis"
+)
+
+DATA_PATHS = "/home/paulo/Documents/data/atmospheric/JRA3Q/"
+DATA_FILES = sorted(glob(DATA_PATHS + "q2_JRA3Q_y*.nc"))
+
+VAR_NAME = "q2m"
+TIME_DIM = "time"
+
+REGION = {
+    "lat_min": 45,
+    "lat_max": 72,
+    "lon_min": -105,
+    "lon_max": -60,
+}
+
+EXTENT = [
+    REGION["lon_min"],
+    REGION["lon_max"],
+    REGION["lat_min"],
+    REGION["lat_max"],
+]
+
+def fix_longitude(ds):
+    return transform_longitude(ds, lon_name="lon")
+
+def cut_region(ds):
+    return select_region(
+        ds,
+        lat_min=REGION["lat_min"],
+        lat_max=REGION["lat_max"],
+        lon_min=REGION["lon_min"],
+        lon_max=REGION["lon_max"],
+        lat_name="lat",
+        lon_name="lon",
+    )
+
+projection = ccrs.AlbersEqualArea(
+    central_longitude=-80,
+    central_latitude=60,
+    standard_parallels=(50, 70),
+)
+
+plot_kwargs = {
+    "projection": projection,
+    "data_crs": ccrs.PlateCarree(),
+    "extent": EXTENT,
+    "levels": 30,
+    "cmap": "viridis",
+    "title": None,
+    "colorbar_label": "Specific humidity",
+    "gridline_step": 5,
+    "map_features": {
+        "land": False,
+        "coastline": True,
+        "borders": False,
+        "states": False,
+        "draw_labels": True,
+        "gridline_crs": ccrs.PlateCarree(),
+    },
+}
+
+ds = load_many_datasets(
+    DATA_FILES,
+    concat_dim=TIME_DIM,
+    transform=fix_longitude,
+    transform_second=cut_region,
+)
+
+summary = run_eda_1d(
+    ds,
+    variable=VAR_NAME,
+    time_dim=TIME_DIM,
+    depth_index=None,
+    output_table=PROJECT_DIR / "outputs/tables/jra3q_q2m_1d_summary.csv",
+    output_violin=PROJECT_DIR / "outputs/figures/jra3q_q2m_violin.png",
+    ylabel="2 m specific humidity",
+    title="JRA3Q 2 m specific humidity yearly distribution",
+    show=False,
+)
+
+run_eda_2d(
+    ds,
+    variable=VAR_NAME,
+    time_dim=TIME_DIM,
+    depth_index=None,
+    mode="statistics",
+    statistics=["mean", "std", "q50", "iqr", "yki", "kurtosis"],
+    output_dir=PROJECT_DIR / "outputs/figures/jra3q_specific_humidity/statistics",
+    output_statistics_nc=PROJECT_DIR / "outputs/netcdf/jra3q_q2m_statistics.nc",
+    lon_name="lon",
+    lat_name="lat",
+    plot_kwargs=plot_kwargs,
+    show=False,
+)
+
+run_eda_2d(
+    ds,
+    variable=VAR_NAME,
+    time_dim=TIME_DIM,
+    depth_index=None,
+    mode="periods",
+    periods=["seasonal", "monthly"],
+    reducer="mean",
+    output_dir=PROJECT_DIR / "outputs/figures/jra3q_specific_humidity/periods",
+    save_periods_netcdf=True,
+    lon_name="lon",
+    lat_name="lat",
+    plot_kwargs=plot_kwargs,
+    show=False,
+)
+\end{lstlisting}
+
+\section{Current Development Roadmap}
+
+The next planned development steps are:
+
+\begin{enumerate}[label=\arabic*.]
+    \item Improve colorbar handling:
+    \begin{itemize}
+        \item label size;
+        \item tick size;
+        \item scientific notation;
+        \item custom tick formatters;
+        \item vertical and horizontal colorbar options;
+        \item shared colorbar control for subplots.
+    \end{itemize}
+
+    \item Improve colormap handling:
+    \begin{itemize}
+        \item sequential colormaps for positive variables;
+        \item diverging colormaps for anomalies and signed variables;
+        \item \texttt{cmocean} support;
+        \item custom level arrays.
+    \end{itemize}
+
+    \item Apply the scalar EDA workflow to real atmospheric datasets.
+
+    \item Test vector workflows:
+    \begin{itemize}
+        \item load paired \texttt{u}/\texttt{v} fields;
+        \item compute speed and direction;
+        \item compute circular statistics;
+        \item plot vector maps with quiver arrows;
+        \item test seasonal and monthly vector subplots.
+    \end{itemize}
+
+    \item Add package tests:
+    \begin{itemize}
+        \item unit tests for statistics;
+        \item unit tests for longitude transformation and regional selection;
+        \item tests for vector speed and direction;
+        \item smoke tests for plotting functions.
+    \end{itemize}
+\end{enumerate}
+
+\section{Git Workflow}
+
+A simple Git workflow for this package is:
+
+\begin{lstlisting}[style=bashstyle]
+git status
+git checkout -b feature-name
+git add src scripts README.md environment.yml pyproject.toml
+git commit -m "Describe the change"
+git push -u origin feature-name
+\end{lstlisting}
+
+To merge into \texttt{main} locally:
+
+\begin{lstlisting}[style=bashstyle]
+git checkout main
+git pull origin main
+git merge feature-name
+git push origin main
+\end{lstlisting}
+
+\section{Notes}
+
+This document describes the current first draft of the package. The public API is still evolving.
+The guide should be updated after each major refactor, especially after the colorbar, colormap,
+real-data, vector, and testing improvements.
+
+\end{document}
