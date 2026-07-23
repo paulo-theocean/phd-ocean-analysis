@@ -4,8 +4,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
 import cmocean as cmo
-
+import calendar
 import xarray as xr
+
+import numpy as np
 
 from .io import (
     expand_paths,
@@ -416,6 +418,7 @@ def run_eda_2d_statistics(
     return stats_maps
 
 
+
 def run_eda_2d_periods(
     data: XarrayObject | PathLike | Sequence[PathLike],
     *,
@@ -576,6 +579,440 @@ def run_eda_2d_periods(
 
     return results
 
+def _check_climatology_years(
+    climatology_years: tuple[int, int] | None,
+) -> tuple[int, int]:
+    """
+    Validate climatology years.
+
+    For atmospheric anomalies, the climatology period should be explicit.
+    """
+    if climatology_years is None:
+        raise ValueError(
+            "climatology_years must be provided for anomaly calculations, "
+            "for example climatology_years=(1991, 2020)."
+        )
+
+    start_year, end_year = climatology_years
+
+    if start_year > end_year:
+        raise ValueError(
+            f"Invalid climatology_years={climatology_years}. "
+            "The first year must be <= the second year."
+        )
+
+    return int(start_year), int(end_year)
+
+
+def _climatology_label(climatology_years: tuple[int, int]) -> str:
+    start_year, end_year = climatology_years
+    return f"{start_year}_{end_year}"
+
+
+def _variable_name(da: xr.DataArray, variable: str | None = None) -> str:
+    if variable is not None:
+        return variable
+    if da.name is not None:
+        return str(da.name)
+    return "field"
+
+
+def _make_anomaly_plot_kwargs(
+    *,
+    var_name: str,
+    plot_kwargs: dict[str, Any] | None = None,
+    anomaly_plot_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Build plotting keyword arguments for anomaly maps.
+
+    User-provided anomaly_plot_kwargs override plot_kwargs.
+    """
+    kwargs = dict(plot_kwargs or {})
+
+    if anomaly_plot_kwargs is not None:
+        kwargs.update(anomaly_plot_kwargs)
+
+    kwargs.setdefault("cmap", cmo.cm.balance)
+    kwargs.setdefault("centered", True)
+    kwargs.setdefault("colorbar_label", f"{var_name} anomaly")
+
+    return kwargs
+
+
+def _write_anomaly_netcdf(
+    da: xr.DataArray,
+    *,
+    output_path: Path,
+    variable_name: str,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ds = da.to_dataset(name=variable_name)
+    ds.to_netcdf(output_path)
+
+
+def compute_monthly_anomalies(
+    da: xr.DataArray,
+    *,
+    time_dim: str = "time",
+    climatology_years: tuple[int, int],
+    variable: str | None = None,
+) -> xr.DataArray:
+    """
+    Compute monthly anomalies.
+
+    Each monthly mean is compared against the climatological mean
+    for the same calendar month.
+
+    Example
+    -------
+    January 2021 anomaly = January 2021 mean - mean of all Januaries
+    during the climatology period.
+    """
+    start_year, end_year = _check_climatology_years(climatology_years)
+    var_name = _variable_name(da, variable)
+
+    monthly_means = da.resample({time_dim: "MS"}).mean(skipna=True)
+
+    baseline = monthly_means.sel(
+        {time_dim: slice(f"{start_year}-01-01", f"{end_year}-12-31")}
+    )
+
+    if baseline.sizes.get(time_dim, 0) == 0:
+        raise ValueError(
+            f"No monthly data found inside climatology period "
+            f"{start_year}-{end_year}."
+        )
+
+    monthly_climatology = baseline.groupby(f"{time_dim}.month").mean(
+        time_dim,
+        skipna=True,
+    )
+
+    anomalies = monthly_means.groupby(f"{time_dim}.month") - monthly_climatology
+
+    anomalies = anomalies.assign_coords(
+        month=(time_dim, anomalies[time_dim].dt.month.data),
+        year=(time_dim, anomalies[time_dim].dt.year.data),
+    )
+
+    anomalies.name = f"{var_name}_monthly_anomaly"
+    anomalies.attrs = da.attrs.copy()
+    anomalies.attrs["long_name"] = f"{var_name} monthly anomaly"
+    anomalies.attrs["anomaly_type"] = "monthly"
+    anomalies.attrs["climatology_years"] = f"{start_year}-{end_year}"
+    anomalies.attrs["anomaly_definition"] = (
+        "monthly mean minus same-calendar-month climatology"
+    )
+
+    return anomalies
+
+
+def compute_seasonal_anomalies(
+    da: xr.DataArray,
+    *,
+    time_dim: str = "time",
+    climatology_years: tuple[int, int],
+    variable: str | None = None,
+) -> xr.DataArray:
+    """
+    Compute seasonal anomalies.
+
+    Seasons are computed using QS-DEC, so DJF is handled correctly.
+
+    DJF 2021 means:
+    December 2020 + January 2021 + February 2021.
+    """
+    start_year, end_year = _check_climatology_years(climatology_years)
+    var_name = _variable_name(da, variable)
+
+    seasonal_means = da.resample({time_dim: "QS-DEC"}).mean(skipna=True)
+
+    season_month = seasonal_means[time_dim].dt.month
+    season_year = seasonal_means[time_dim].dt.year + xr.where(
+        season_month == 12,
+        1,
+        0,
+    )
+
+    seasonal_means = seasonal_means.assign_coords(
+        season=(time_dim, seasonal_means[time_dim].dt.season.data),
+        season_year=(time_dim, season_year.data),
+    )
+
+    baseline = seasonal_means.where(
+        (seasonal_means["season_year"] >= start_year)
+        & (seasonal_means["season_year"] <= end_year),
+        drop=True,
+    )
+
+    if baseline.sizes.get(time_dim, 0) == 0:
+        raise ValueError(
+            f"No seasonal data found inside climatology period "
+            f"{start_year}-{end_year}."
+        )
+
+    seasonal_climatology = baseline.groupby("season").mean(
+        time_dim,
+        skipna=True,
+    )
+
+    anomalies = seasonal_means.groupby("season") - seasonal_climatology
+
+    anomalies = anomalies.assign_coords(
+        season=(time_dim, seasonal_means["season"].data),
+        season_year=(time_dim, seasonal_means["season_year"].data),
+    )
+
+    anomalies.name = f"{var_name}_seasonal_anomaly"
+    anomalies.attrs = da.attrs.copy()
+    anomalies.attrs["long_name"] = f"{var_name} seasonal anomaly"
+    anomalies.attrs["anomaly_type"] = "seasonal"
+    anomalies.attrs["climatology_years"] = f"{start_year}-{end_year}"
+    anomalies.attrs["anomaly_definition"] = (
+        "seasonal mean minus same-season climatology"
+    )
+
+    return anomalies
+
+
+def compute_yearly_anomalies(
+    da: xr.DataArray,
+    *,
+    time_dim: str = "time",
+    climatology_years: tuple[int, int],
+    variable: str | None = None,
+) -> xr.DataArray:
+    """
+    Compute yearly anomalies.
+
+    Each yearly mean is compared against the mean yearly climatology.
+    """
+    start_year, end_year = _check_climatology_years(climatology_years)
+    var_name = _variable_name(da, variable)
+
+    yearly_means = da.resample({time_dim: "YS"}).mean(skipna=True)
+
+    years = yearly_means[time_dim].dt.year
+
+    yearly_means = yearly_means.assign_coords(
+        year=(time_dim, years.data),
+    )
+
+    baseline = yearly_means.where(
+        (yearly_means["year"] >= start_year)
+        & (yearly_means["year"] <= end_year),
+        drop=True,
+    )
+
+    if baseline.sizes.get(time_dim, 0) == 0:
+        raise ValueError(
+            f"No yearly data found inside climatology period "
+            f"{start_year}-{end_year}."
+        )
+
+    yearly_climatology = baseline.mean(time_dim, skipna=True)
+
+    anomalies = yearly_means - yearly_climatology
+
+    anomalies = anomalies.assign_coords(
+        year=(time_dim, yearly_means["year"].data),
+    )
+
+    anomalies.name = f"{var_name}_yearly_anomaly"
+    anomalies.attrs = da.attrs.copy()
+    anomalies.attrs["long_name"] = f"{var_name} yearly anomaly"
+    anomalies.attrs["anomaly_type"] = "yearly"
+    anomalies.attrs["climatology_years"] = f"{start_year}-{end_year}"
+    anomalies.attrs["anomaly_definition"] = (
+        "yearly mean minus climatological yearly mean"
+    )
+
+    return anomalies
+
+def run_eda_2d_anomalies(
+    data: xr.Dataset | xr.DataArray,
+    *,
+    variable: str | None = None,
+    output_dir: str | Path,
+    anomaly_periods: Sequence[str] = ("monthly", "seasonal", "yearly"),
+    climatology_years: tuple[int, int],
+    time_dim: str = "time",
+    depth_index: int | None = None,
+    plot_kwargs: dict[str, Any] | None = None,
+    anomaly_plot_kwargs: dict[str, Any] | None = None,
+    write_netcdf: bool = True,
+    show: bool = True,
+) -> dict[str, xr.DataArray]:
+    """
+    Run 2D anomaly analysis.
+
+    Outputs
+    -------
+    monthly
+        NetCDF with all monthly anomalies.
+        Twelve figures, one for each calendar month.
+
+    seasonal
+        NetCDF with all seasonal anomalies.
+        Four figures, one for each season.
+
+    yearly
+        NetCDF with all yearly anomalies.
+        One figure with yearly anomalies.
+    """
+    output_dir = Path(output_dir)
+    anomaly_dir = output_dir / "anomalies"
+    netcdf_dir = anomaly_dir / "netcdf"
+    figure_dir = anomaly_dir / "figures"
+
+    climatology_years = _check_climatology_years(climatology_years)
+    clim_label = _climatology_label(climatology_years)
+
+    da = prepare_2d_field(
+        data,
+        variable=variable,
+        time_dim=time_dim,
+        depth_index=depth_index,
+    )
+
+    var_name = _variable_name(da, variable)
+
+    periods = {period.lower() for period in anomaly_periods}
+
+    results: dict[str, xr.DataArray] = {}
+
+    anomaly_kwargs = _make_anomaly_plot_kwargs(
+        var_name=var_name,
+        plot_kwargs=plot_kwargs,
+        anomaly_plot_kwargs=anomaly_plot_kwargs,
+    )
+
+    if "monthly" in periods or "month" in periods:
+        monthly_anomalies = compute_monthly_anomalies(
+            da,
+            time_dim=time_dim,
+            climatology_years=climatology_years,
+            variable=var_name,
+        )
+
+        results["monthly"] = monthly_anomalies
+
+        if write_netcdf:
+            _write_anomaly_netcdf(
+                monthly_anomalies,
+                output_path=netcdf_dir
+                / f"{var_name}_monthly_anomalies_{clim_label}.nc",
+                variable_name=f"{var_name}_monthly_anomaly",
+            )
+
+        monthly_fig_dir = figure_dir / "monthly"
+        monthly_fig_dir.mkdir(parents=True, exist_ok=True)
+
+        for month in range(1, 13):
+            month_name = calendar.month_name[month]
+
+            month_anomalies = monthly_anomalies.where(
+                monthly_anomalies["month"] == month,
+                drop=True,
+            )
+
+            if month_anomalies.sizes.get(time_dim, 0) == 0:
+                continue
+
+            plot_2d_subplots(
+                month_anomalies,
+                title=(
+                    f"{var_name} {month_name} anomalies "
+                    f"relative to {climatology_years[0]}-{climatology_years[1]}"
+                ),
+                output_path=monthly_fig_dir
+                / (
+                    f"{var_name}_monthly_anomaly_"
+                    f"{month:02d}_{month_name.lower()}_{clim_label}.png"
+                ),
+                show=show,
+                **anomaly_kwargs,
+            )
+
+    if "seasonal" in periods or "season" in periods:
+        seasonal_anomalies = compute_seasonal_anomalies(
+            da,
+            time_dim=time_dim,
+            climatology_years=climatology_years,
+            variable=var_name,
+        )
+
+        results["seasonal"] = seasonal_anomalies
+
+        if write_netcdf:
+            _write_anomaly_netcdf(
+                seasonal_anomalies,
+                output_path=netcdf_dir
+                / f"{var_name}_seasonal_anomalies_{clim_label}.nc",
+                variable_name=f"{var_name}_seasonal_anomaly",
+            )
+
+        seasonal_fig_dir = figure_dir / "seasonal"
+        seasonal_fig_dir.mkdir(parents=True, exist_ok=True)
+
+        for season in ["DJF", "MAM", "JJA", "SON"]:
+            season_anomalies = seasonal_anomalies.where(
+                seasonal_anomalies["season"] == season,
+                drop=True,
+            )
+
+            if season_anomalies.sizes.get(time_dim, 0) == 0:
+                continue
+
+            plot_2d_subplots(
+                season_anomalies,
+                title=(
+                    f"{var_name} {season} anomalies "
+                    f"relative to {climatology_years[0]}-{climatology_years[1]}"
+                ),
+                output_path=seasonal_fig_dir
+                / f"{var_name}_seasonal_anomaly_{season}_{clim_label}.png",
+                show=show,
+                **anomaly_kwargs,
+            )
+
+    if "yearly" in periods or "annual" in periods or "year" in periods:
+        yearly_anomalies = compute_yearly_anomalies(
+            da,
+            time_dim=time_dim,
+            climatology_years=climatology_years,
+            variable=var_name,
+        )
+
+        results["yearly"] = yearly_anomalies
+
+        if write_netcdf:
+            _write_anomaly_netcdf(
+                yearly_anomalies,
+                output_path=netcdf_dir
+                / f"{var_name}_yearly_anomalies_{clim_label}.nc",
+                variable_name=f"{var_name}_yearly_anomaly",
+            )
+
+        yearly_fig_dir = figure_dir / "yearly"
+        yearly_fig_dir.mkdir(parents=True, exist_ok=True)
+
+        plot_2d_subplots(
+            yearly_anomalies,
+            title=(
+                f"{var_name} yearly anomalies "
+                f"relative to {climatology_years[0]}-{climatology_years[1]}"
+            ),
+            output_path=yearly_fig_dir
+            / f"{var_name}_yearly_anomalies_{clim_label}.png",
+            show=show,
+            **anomaly_kwargs,
+        )
+
+    return results
+
 
 def run_eda_2d(
     data: XarrayObject | PathLike | Sequence[PathLike],
@@ -589,6 +1026,10 @@ def run_eda_2d(
     statistics: Sequence[str] = DEFAULT_2D_STATS,
     periods: Sequence[Period] = ("seasonal", "monthly", "annual"),
     reducer: str = "mean",
+    anomaly_periods: Sequence[str] | None = None,
+    climatology_years: tuple[int, int] | None = None,
+    anomaly_plot_kwargs: dict[str, Any] | None = None,
+    write_anomaly_netcdf: bool = True,
     output_dir: PathLike | None = None,
     output_statistics_nc: PathLike | None = None,
     save_periods_netcdf: bool = False,
@@ -660,7 +1101,23 @@ def run_eda_2d(
             save_netcdf=save_periods_netcdf,
             **common_kwargs,
         )
-
+    
+    
+    if anomaly_periods is not None:
+        run_eda_2d_anomalies(
+            data,
+            variable=variable,
+            output_dir=output_dir,
+            anomaly_periods=anomaly_periods,
+            climatology_years=climatology_years,
+            time_dim=time_dim,
+            depth_index=depth_index,
+            plot_kwargs=plot_kwargs,
+            anomaly_plot_kwargs=anomaly_plot_kwargs,
+            write_netcdf=write_anomaly_netcdf,
+            show=show,
+            )
+    
     if mode == "both":
         stats_output_dir = Path(output_dir) / "statistics" if output_dir is not None else None
         periods_output_dir = Path(output_dir) / "periods" if output_dir is not None else None

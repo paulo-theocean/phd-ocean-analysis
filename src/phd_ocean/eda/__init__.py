@@ -1,5 +1,5 @@
 """
-Exploratory Data Analysis tools for oceanographic datasets.
+Exploratory Data Analysis tools for oceanographic and atmospheric datasets.
 
 Main workflows
 --------------
@@ -7,7 +7,11 @@ run_eda_1d
     Yearly statistical summary tables and violin plots.
 
 run_eda_2d
-    Full-period statistical maps and seasonal/monthly/annual maps.
+    Full-period statistical maps, period maps, and optional climatological
+    anomaly maps.
+
+run_eda_2d_anomalies
+    Monthly, seasonal, and yearly anomaly NetCDF outputs and figures.
 """
 
 from .io import (
@@ -60,9 +64,13 @@ from .eda_1d import (
 
 from .eda_2d import (
     prepare_2d_field,
+    compute_monthly_anomalies,
+    compute_seasonal_anomalies,
+    compute_yearly_anomalies,
     run_eda_2d_statistics,
     run_eda_2d_periods,
     run_eda_2d,
+    run_eda_2d_anomalies,
 )
 
 
@@ -114,7 +122,11 @@ __all__ = [
 
     # eda_2d
     "prepare_2d_field",
+    "compute_monthly_anomalies",
+    "compute_seasonal_anomalies",
+    "compute_yearly_anomalies",
     "run_eda_2d_statistics",
     "run_eda_2d_periods",
     "run_eda_2d",
+    "run_eda_2d_anomalies",
 ]
